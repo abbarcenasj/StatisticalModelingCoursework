@@ -1,0 +1,277 @@
+---
+title: 'IDS 702 - Homework #4'
+author: "Ana Belen Barcenas J."
+date: "10/10/2018"
+output: pdf_document
+---
+
+# Maternal Smoking and Pre-term Birth
+
+
+```{r setup, include=FALSE}
+setwd("~/Documents/MIDS/Modeling and Repr of Data/R Codes and Data/HM4")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, include=FALSE}
+# install.packages("ggplot2")
+# install.packages("gridExtra")
+# install.packages("grid")
+# install.packages("tidyverse")
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(dplyr)
+library(lattice)
+library(tidyverse)
+library(arm)
+library(pROC)
+```
+
+```{r, include=FALSE}
+smoking_comp <- read.csv("smoking_comp.txt")
+smoking <- read.csv("smoking.txt")
+```
+
+Let's create the dataset:
+```{r}
+smoking_comp <- subset(smoking_comp, select = c(id, Premature))
+smoking2 <- merge(smoking, smoking_comp, by="id")
+```
+
+Let's take a look of the data we have:
+```{r}
+summary(smoking2)
+```
+
+The complete dataset includes father's data as well as mother's data. In the previous assignment (Methods and Data Analysis #3) I found out that father's data has a strong correlation with mother's data. Moreover, after deleating missing values in father's information I lose almost half of the observations. Thus, I will not use father's information to predict the effect of maternal smoking on pre-term birth.
+
+And the predictor variable:
+```{r}
+smoking2 %>% count(Premature)
+```
+It seems that the databased is not balanced in terms of premature babies. We have only 19% premature babies born. We will work with the data we have having in mind that this is a possible limitation of the analysis. 
+
+## Creation of possible predictors
+
+1) Collapsing race categories from 0 to 5 in "white" and create dummy vars for each category:
+
+```{r}
+n = nrow(smoking2)
+smoking2$white = rep(0, n)
+smoking2$white[smoking2$mrace == "0" | smoking2$mrace == "1" | smoking2$mrace == "2" | smoking2$mrace == "3" | smoking2$mrace == "4" | smoking2$mrace == "5"] = 1
+smoking2$mexican = rep(0, n)
+smoking2$mexican[smoking2$mrace == "6"] = 1
+smoking2$black = rep(0, n)
+smoking2$black[smoking2$mrace == "7"] = 1
+smoking2$asian = rep(0, n)
+smoking2$asian[smoking2$mrace == "8"] = 1
+smoking2$mix = rep(0, n)
+smoking2$mix[smoking2$mrace == "9"] = 1
+
+smoking2$mrace2[smoking2$mrace == "0" | smoking2$mrace == "1" | smoking2$mrace == "2" | smoking2$mrace == "3" | smoking2$mrace == "4" | smoking2$mrace == "5"] = "white"
+smoking2$mrace2[smoking2$mrace == "6"] = "Mexican"
+smoking2$mrace2[smoking2$mrace == "7"] = "Black"
+smoking2$mrace2[smoking2$mrace == "8"] = "Asian"
+smoking2$mrace2[smoking2$mrace == "9"] = "Mix"
+
+smoking2 %>% count(mrace2)
+```
+The number of observations we have in the categories different than "white" is really small compared with the "white" mothers. I would perform a second transformation of race: white and other race:
+```{r}
+smoking2$white_dum[smoking2$mrace == "0" | smoking2$mrace == "1" | smoking2$mrace == "2" | smoking2$mrace == "3" | smoking2$mrace == "4" | smoking2$mrace == "5"] = 1
+
+smoking2$white_dum[smoking2$mrace == "6" | smoking2$mrace == "7"| smoking2$mrace == "8" | smoking2$mrace == "9"] = 0
+
+smoking2 %>% count(white_dum)
+```
+
+
+
+2) Let's analyze mother's education observations:
+```{r}
+smoking2 %>% count(med)
+```
+It seems that could be useful to collapse the categories in 4 clearer batches: less than high school education, high school education (and no other schooling), more than high school education but less than college, and college graduate.
+
+```{r}
+n = nrow(smoking2)
+smoking2$less_hs = rep(0, n)
+smoking2$less_hs[smoking2$med == "0" | smoking2$med == "1"] = 1
+smoking2$hs = rep(0, n)
+smoking2$hs[smoking2$med == "2"] = 1
+smoking2$more_hs = rep(0, n)
+smoking2$more_hs[smoking2$med == "3" | smoking2$med == "4" | smoking2$med == "6" | smoking2$med == "7"] = 1
+smoking2$col = rep(0, n)
+smoking2$col[smoking2$med == "5"] = 1
+
+smoking2$med2[smoking2$med == "0" | smoking2$med == "1"] = "less_hs"
+smoking2$med2[smoking2$med == "2"] = "hs"
+smoking2$med2[smoking2$med == "3" | smoking2$med == "4" | smoking2$med == "6" | smoking2$med == "7"] = "more_hs"
+smoking2$med2[smoking2$med == "5"] = "college"
+
+smoking2 %>% count(med2)
+```
+
+
+
+3) To obtain more accurate interpretations, I'll substract the mean of the mother's age, height and weight:
+
+```{r}
+smoking2$mage_cent = smoking2$mage - mean(smoking2$mage)
+smoking2$mht_cent = smoking2$mht - mean(smoking2$mht)
+smoking2$mpregwt_cent = smoking2$mpregwt - mean(smoking2$mpregwt)
+```
+
+
+
+## Exploratory analysis
+
+The predictor variables available are: 
+-- Mother's race or ethnicity
+-- Mother's age
+-- Mother's education
+-- Mother's height
+-- Mother's pre pregnancy weight
+-- Income
+-- Parity (number of previous pregnancies)
+-- Smoke
+
+Let's analyze the individual effect that the predictors has on pre-term births as well as the combined effect of smoking, race and pre-term births:
+
+* Continous predictors vs. pre-term birth:
+
+```{r, fig.width=7, fig.height=3}
+par(mfrow=c(1,5))
+boxplot(smoking2$mage~smoking2$Premature, ylab = "Mother's age", xlab = "Premature")
+boxplot(smoking2$mht~smoking2$Premature, ylab = "Mother's height (inches)", xlab = "Premature")
+boxplot(smoking2$mpregwt~smoking2$Premature, ylab = "Mother's weight (pounds)", xlab = "Premature")
+boxplot(smoking2$inc~smoking2$Premature, ylab = "Income", xlab = "Premature")
+boxplot(smoking2$parity~smoking2$Premature, ylab = "Number of previous pregnancies", xlab = "Premature")
+```
+From this boxplots is not evident that mother's height, weight, parity, and income can predict pre-term birth. Nonetheless, this relationships are individual. A logistic model should give us a better and more complete understanding of the relation between these variables and pre-term birth. Thus, we will test the predictive power of these predictors in the model. In the meantime I will look at the binned plots of these predictors vs premature:
+
+```{r, fig.width=7, fig.height=4}
+par(mfrow=c(2,3))
+binnedplot(smoking2$mage, y=smoking2$Premature, xlab = "Mother's age", ylab = "Premature cases") 
+binnedplot(smoking2$mht, y=smoking2$Premature, xlab = "Mother's height", ylab = "Premature cases") 
+binnedplot(smoking2$mpregwt, y=smoking2$Premature, xlab = "Mother's weight", ylab = "Premature cases") 
+binnedplot(smoking2$inc, y=smoking2$Premature, xlab = "Income", ylab = "Premature cases") 
+binnedplot(smoking2$parity, y=smoking2$Premature, xlab = "Mother's height", ylab = "Premature cases") 
+```
+No transformations suggested based on the binned plots.
+
+
+* Interactions with smoking and categorial predictors (education and race):
+```{r}
+table(smoking2$smoke, smoking2$Premature)
+table(smoking2$med2, smoking2$Premature)
+table(smoking2$white_dum, smoking2$Premature)
+
+
+```
+From these tables we can see that (1) if the mother smoke, the number of pre-term births is greater than if the mother do not smoke (87 vs 77 obs.); (2) mother's graduated from college are the ones with less pre-term births, the relation with education as a continous variable is not clear enough; (3) if the mother is white, the number of pre-term births is greater than if the mother is not white (101 vs. 63 obs.). Once again, this relations are individual relations between predictors. A logistic model will give us a better understanding of the predictive power of each variable. 
+
+We have seen individual relations, let's fit a model.
+
+
+
+## Fitting a logistic regression
+
+```{r}
+premature1 = glm(Premature ~ as.factor(smoke) + white_dum + mage_cent + mht_cent + mpregwt_cent + inc + parity + hs + more_hs + col, data = smoking2, family = binomial)
+summary(premature1)
+```
+From the exploratory analysis we saw that the variables income and parity seemed to be non related with pre term birth. To conclude this properly, I will test how significant they are employing an anova:
+
+```{r}
+premature2 = glm(Premature ~ smoke + white_dum + mage_cent + mht_cent + mpregwt_cent + hs + more_hs + col, data = smoking2, family = binomial)
+
+anova(premature1, premature2, test= "Chisq")
+```
+Given the p-value we do not have enough information to reject the null hypotheses: it seems that the income and parity are not significant predictors of pre-term birth. I will exclude those variables.
+
+
+Let's see if the relation between smoking and pre-term birth differs by mother's race:
+```{r}
+premature3 = glm(Premature ~ smoke*white_dum + mage_cent + mht_cent + mpregwt_cent + hs + more_hs + col, data = smoking2, family = binomial)
+
+anova(premature2, premature3, test= "Chisq")
+```
+It seems that the interaction between mother's race and smoking is not significant. Which is to say, the association between smoking and pre-term birth does not differ between white mothers and mothers from different races. I will not include the interaction.
+
+
+So, the final model would be the following:
+
+```{r}
+summary(premature2)
+```
+
+## Model diagnostics 
+
+Now that I have a model that seems to be good enough, let's check binned residuals, confussion matrix and ROC curve (predictions will com later after assessing the performance of the model).
+
+
+1) Binned residual plots
+
+```{r, fig.width=7, fig.height=3}
+par(mfrow=c(1,3))
+rawresid = smoking2$Premature - fitted(premature2)
+binnedplot(x=smoking2$mage_cent, y = rawresid, xlab = "Mother's age (centered)", ylab = "Residuals")
+binnedplot(x=smoking2$mht_cent, y = rawresid, xlab = "Mother's height (centered)", ylab = "Residuals")
+binnedplot(x=smoking2$mpregwt_cent, y = rawresid, xlab = "Mother's weight (centered)", ylab = "Residuals")
+```
+Residuals seems to be randomly distributed along the values and well distributed between positive and negative residuals. This suggests that the model is performing properly and describes the data good enough.
+
+
+Let's look at average residuals by smoke, race and education:
+```{r}
+tapply(rawresid, smoking2$smoke, mean)
+tapply(rawresid, smoking2$white_dum, mean)
+tapply(rawresid, smoking2$med2, mean)
+```
+Nothing remarkable from these residuals. Unless that the residual for mother's with less than high school education is big. This can be explained by the small number of observations we have for that category.
+
+
+2) Lets see the confusion matrix with a 0.5 threshold:
+
+```{r}
+threshold = 0.3
+table(smoking2$Premature, premature2$fitted > threshold)
+```
+It seems that the model is not doing so well in predicting true positives (premature births) but is performing better when predicting true negatives (when a mother will not have a premature birth). Let's check the ROC curve to determine if the model is better than a random choice. Also, do not forget that we do not have enough observations where the mother had a premature baby.
+
+3) Finally, the ROC curve:
+
+```{r, fig.width=4, fig.height=4, fig.align="center"}
+roc(smoking2$Premature, fitted(premature2), plot=T, legacy.axes=T)
+```
+
+The area under the curve is 0.6402, seems good! Seems to be a strong predictive logistics regression at least of true negative classifications.
+
+
+## Interpretations
+
+```{r}
+exp(premature2$coefficients)
+exp(confint.default(premature2))
+```
+
+-- Intercept: We expect the odds of having a premature baby given that the mother do not smoke, is not white, has average height, weight, and age, and has not high school degree, is 0.45. We are 95% confident that the odds when the person has the characteristics mentioned above falls between 0.28 and 0.74.
+
+-- Smoke: A mother with the characteristics mentioned above but that smokes, has a higher probability of having a premature baby. We expect the odds change by a multiplicative factor of 1.40 (CI: 0.98 - 2.00).
+
+-- Race: The odds that a mother that is white and has average height, weight, and age, and has not high school degree, will expect a change in the odds of having a premature baby by a multiplicative factor of 0.54 with respect to non-white mothers (CI:0.37 - 0.80).
+
+-- An interesting association found in the analysis, is that mother's weight seems to be a good predictor of pre-term birth. More specifically, A mother that is not white, has average height, weight, and age, and do not smoke will get an average change of the odds of having a premature baby by a multiplicative factor of 0.98 for each additional pound of weight (CI: 0.98 - 1.00).
+
+
+
+## Limitations of the analysis.
+
+As mentioned above, I consider that the bigger limitation of this analysis is the amount of observations available. Specially those related with the mother's race. To determine if the relation between smoking and pre-term birth varies depending on the mother's race, I would perform an additional analysis including more information about mothers that are not white as well as more observations of mothers that indeed had a premature baby to get a more balanced dependent variable. Getting more information could also help us to predict more accurate true positives (predict that a mother will have a premature baby correctly).
+
+Moreover, I would include a variable that describes the general health status of the mother before and during the pregnancy. Researchers has shown that mother's health is a strong predictor of new born babies health.
+
+
+

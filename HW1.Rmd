@@ -1,0 +1,155 @@
+---
+title: "IDS 702 - Homework #1"
+author: "Ana Belen Barcenas J."
+date: "9/5/2018"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+#setwd("~/Documents/MIDS/Modeling and Repr of Data/R Codes and Data")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, include=FALSE}
+library(ggplot2)
+```
+
+
+```{r, include=FALSE}
+OldFaithful <- read.csv("OldFaithful.csv")
+RespRates <- read.csv("Respiratory.csv")
+Elections <- read.csv("Elections.csv")
+```
+
+
+## 1. Old Faithful
+
+Fit linear regression model:
+``` {r}
+lm_oldf <- lm(Interval ~ Duration, data = OldFaithful)
+```
+
+Results of the regression:
+```{r}
+summary(lm_oldf)
+```
+The results suggest that there is a possitive relation between the duration of the previous eruption and the interval until the next eruption occurs. If the duration of the previous eruption increase by 1 minute, the interval until the second eruption occurs will take 10.74 more minutes. 
+
+Let's see the 95% confidence interval for the slope:
+```{r}
+confint(lm_oldf, level=0.95)
+```
+Since the interval excludes 0, we can conclude a significant relationship between the interval between eruptions and the duration of the previous one. Also, from the CI we are 95% confident that the population regression slope falls between 9.50 and 11.98. There is a positive relation between the duration of the previous eruption and waiting time.
+(http://www.stat.wmich.edu/naranjo/stat1600/p119.pdf)
+
+Are regression assumptions plausible?
+```{r}
+par(mfrow=c(2,2))
+plot(lm_oldf)
+par(mfrow=c(1,1))
+```
+There is not a distinctive pattern in the residuals vs. fitted plot. Which suggests that the regression assumptions are not violated. From the Normal Q-Q plot, we can observe that the residuals are normally distributed. We would like to observe a more horizontal line in the spread - location plot to confirm the assumption of equal variance for all x values. But where there are more residuals, the behavior of the line looks horizontal and residuals appear randomly spread. 
+(https://data.library.virginia.edu/diagnostic-plots/)
+
+Let's predict the interval of waiting time until the next eruption if the duration of the previous one was 4 minutes:
+```{r}
+waittime = 4
+newdata = data.frame(Duration = waittime)
+predict(lm_oldf, newdata, interval = "prediction")
+```
+The prediction intervals suggests that if an eruption lasts 4 minutes, the next eruption will take place in a range between 63 and 90 mins with 95% confidence. 
+
+
+
+## 2. Respiratory Rates for Children
+```{r}
+summary(RespRates)
+```
+The minimum age observed in this data is 0.1 months and the maximum is 36 months (3 years). The minimum number of breaths per minute is 18 and the maximum is 78. Let's see a plot to understand the nature of this data.
+
+```{r fig.width=7, fig.height=3}
+ggplot(data = RespRates) + geom_point(mapping = aes(x = Age, y = Rate), 
+                                      colour = "blue") + ggtitle("Age vs. Respiratory Rates") + xlab("Age (months)") + ylab("Respiratory rates (breaths per min.)")
+```
+
+Let's fit a linear regression, see the results and plots to assess if the assumptios are met:
+```{r}
+lm_resp <- lm(Rate ~ Age, data = RespRates)
+summary(lm_resp)
+par(mfrow=c(2,2))
+plot(lm_resp)
+par(mfrow=c(1,1))
+```
+The linearity assumptions seems to be met (see first graph). Since we do not know how the data was collected, we will assume that the childrens measured are "independent". Nevertheless, the constant variance assumption as well as the normality assumption  seems to be violated (see first and second plots). To adjust the data, I will perform a transformation of the dependent variable Respiratory Rates to correct the non-constant variance.
+
+```{r}
+lm_resp_trans <- lm(log(Rate) ~ Age, data = RespRates)
+par(mfrow=c(2,2))
+plot(lm_resp_trans)
+par(mfrow=c(1,1))
+```
+The log transformed dependent variable seems to correct the linearity and normality problems! Let's see the results of the regression:
+```{r}
+summary(lm_resp_trans)
+```
+Now we are capturing a larger variance (R-square = 52%) than before log transforming the dependent variable (R-square = 47%).
+
+So now that we have a proper model, let's predict the 95% confidence intervals for the respiratory rate for 3 individual children: 1 month, 18 months, and 29 months:
+```{r}
+months = c(1,18,29)
+newdata = data.frame(Age = months)
+exp(predict(lm_resp_trans, newdata, interval = "prediction"))
+```
+The prediction intervals suggests that a 1 month old children will have a respiratory rate between 3.44 and 4.21 with 95% confidence; a 18 months child will have a respiratory rate between 3.12 and 3.89 with 95% confidence; and a 29 months child will have a respiratory rate between 2.29 and 3.68 with 95% confidence.
+
+
+# 3. The Dramatic U.S. Presidencial Election of 2000
+
+Let's see a scatterplot of the votes in each Florida county:
+```{r fig.width=7, fig.height=3}
+ggplot(data = Elections) + geom_point(mapping = aes(x = Bush2000, y = Buchanan2000), colour = "red") + ggtitle("Bush vs. Buchanan votes - Florida")
+```
+
+From the scatter plot is evident that the number of votes Buchanans received in Palm Beach is an atypical result given the regular relation between Bush and Buchanans number of votes.
+
+Let's get rid off that outlier and fit a linear regression to the rest of the data.
+```{r}
+Elections_2 <- subset(Elections, County!='Palm Beach')
+lm_elect_nt <- lm(Buchanan2000 ~ Bush2000, data = Elections_2)
+par(mfrow=c(2,2))
+plot(lm_elect_nt)
+par(mfrow=c(1,1))
+```
+The linearity and constant variance assumptions seems to be violated. I'll try log transforming both the dependent and independent variables.
+
+```{r}
+lm_elect <- lm(log(Buchanan2000) ~ log(Bush2000), data = Elections_2)
+summary(lm_elect)
+par(mfrow=c(2,2))
+plot(lm_elect)
+par(mfrow=c(1,1))
+```
+Now both assumptions are non-violated.
+
+Let's predict the number of votes in Palm Beach given 152,846 votes for Bush:
+```{r}
+bush_v = 152846
+newdata = data.frame(Bush2000 = 152846)
+exp(predict(lm_elect, newdata, interval = "prediction"))
+```
+Given the prediction intervals, it seems that the number of votes in Palm Beach for Buchanan should be something between 250 and 1399 with 95% confidence. That result suggests that some of the 3407 votes that Buchanans received in that county are intended for Gore.
+
+
+
+
+
+
+
+
+
+
+
+

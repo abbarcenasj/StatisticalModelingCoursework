@@ -1,0 +1,280 @@
+---
+title: "IDS 702 - Homework #5"
+author: "Ana Belen Barcenas J."
+date: "11/11/2018"
+output: pdf_document
+---
+
+# Missing Data - Multiple Imputation
+
+```{r setup, include=FALSE}
+setwd("~/Documents/MIDS/Modeling and Repr of Data/R Codes and Data/HW5")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, include=FALSE}
+#install.packages("mice")
+library(mice)
+library(dplyr)
+```
+
+```{r, include=FALSE}
+treeage <- read.csv("treeage.txt")
+nhanes <- read.csv("nhanes.csv",na=c("."))
+```
+
+
+
+## 2) Missing Data Mechanics
+
+a) Create dataset with 30% age missing vales completely at random
+
+```{r}
+treeage2 <- treeage
+
+set.seed(5)
+missings <- sample(1:nrow(treeage2),nrow(treeage2)*0.3)
+
+for (i in 1:nrow(treeage2)){
+  if (i %in% missings){
+  treeage2[i,3] = NA}}
+
+treeage2
+```
+
+b) & c) Let's fill the missing values using the multiple imputation approach
+
+```{r, results = 'hide'}
+treeage_MI = mice(treeage2, m=50)
+```
+
+I decided to use the default model because otherwise I was getting negative values for age.
+
+
+IMPUTATION DIAGNOSTICS
+
+```{r, fig.width=7, fig.height=3}
+par(mfrow=c(1,2))
+stripplot(treeage_MI, age~.imp, col=c("grey",mdc(2),pch=c(1,20)))
+stripplot(treeage_MI, age~diameter, col=c("grey",mdc(2),pch=c(1,20)))
+```
+
+From the first plot we can observe that the imputed values (red dots) lies within the range of the observed values (grey dots). What suggests that the imputation is being conservative and the imputed values makes sense. From the second plot, the trend seems to be similar between imputed and observed values. What also suggests that the model is imputing values that make sense and follows the same positive relation with diameter as the observed values.
+
+
+Now, let's analyze posterior predictive checks.
+
+```{r, results = 'hide'}
+ppcheck = rbind(treeage2, treeage2)
+ppcheck[21:40, 3] = NA
+ppcheck_MI = mice(ppcheck, m=50)
+```
+
+Once we have the model, let's check the diagnostics for 3 completed datasets. 
+
+```{r}
+d1ppcheck = complete(ppcheck_MI, 4)
+d2ppcheck = complete(ppcheck_MI, 2)
+d3ppcheck = complete(ppcheck_MI, 3)
+```
+
+First, let's compare the marginal distribution of age between the observed data and the imputed data:
+
+```{r}
+par(mfcol=c(2,3))
+hist(d1ppcheck$age[1:20], xlim=c(60,180), breaks=6, xlab = "Age", main = "1. Age completed data")
+hist(d1ppcheck$age[21:40], xlim=c(60,180), breaks=6, xlab = "Age", main = "1. Age replicated data")
+
+hist(d2ppcheck$age[1:20], xlim=c(60,180), breaks=6, xlab = "Age", main = "2. Age completed data")
+hist(d2ppcheck$age[21:40], xlim=c(60,180), breaks=6, xlab = "Age", main = "2. Age replicated data")
+
+
+hist(d3ppcheck$age[1:20], xlim=c(60,180), breaks=6, xlab = "Age", main = "3. Age completed data")
+hist(d3ppcheck$age[21:40], xlim=c(60,180), breaks=6, xlab = "Age", main = "3. Age replicated data")
+```
+
+It seems that the replicated data does not differ too much from the observed data at least for this 3 cases.
+
+Second, let's compare the relashionship between age and diameter of the observed and the imputed datasets:
+
+```{r}
+par(mfcol=c(2,3))
+plot(d1ppcheck$age[1:20]~d2ppcheck$diameter[1:20], ylab = "Age", xlab = "Diameter", main = "1. Age vs. diameter complete")
+plot(d1ppcheck$age[21:40]~d2ppcheck$diameter[21:40], ylab = "Age", xlab = "Diameter", main = "2. Age vs. diameter replicated")
+
+plot(d2ppcheck$age[1:20]~d2ppcheck$diameter[1:20], ylab = "Age", xlab = "Diameter", main = "1. Age vs. diameter complete")
+plot(d2ppcheck$age[21:40]~d2ppcheck$diameter[21:40], ylab = "Age", xlab = "Diameter", main = "2. Age vs. diameter replicated")
+
+plot(d3ppcheck$age[1:20]~d2ppcheck$diameter[1:20], ylab = "Age", xlab = "Diameter", main = "1. Age vs. diameter complete")
+plot(d3ppcheck$age[21:40]~d2ppcheck$diameter[21:40], ylab = "Age", xlab = "Diameter", main = "2. Age vs. diameter replicated")
+
+```
+I would say that the trends look pretty similar between the observed and imputed datasets. The positive relation between age and diameter is clear in the replicated datasets. I feel comfortable with this model.
+
+
+
+d) Regression of age on diameter using multiple imputation combining rules.
+
+```{r}
+reg1 = with(data=treeage_MI, lm(age~diameter))
+reg2 = pool(reg1)
+summary(reg2, conf.int = T)
+```
+
+According with the model fitted above, if the tree diameter increase by one, the average age of the tree will be 10.44 months greater. We are 95% confident that the average of the tree given the increase of one in the diameter will lie between 2.39 and 18.5 months. It is a wide range but the change is always greater than zero.
+
+
+
+## 2) Multiple Imputation in NHANES data
+
+Let's analyze the data and find what variables has missing values on it.
+
+```{r}
+nhanes <- nhanes[,5:ncol(nhanes)]
+summary(nhanes)
+```
+
+I have selected just those variables that are important for the analysis and also I deleted age variable since is highly correlated with age at screening (ridageyr). 
+
+Now, let's clean the data imputing NAs in cases where people answer "don't know" or "refused", mean center age variable, and convert as factors the categorical variables.
+
+```{r}
+nhanes <- nhanes %>%
+  mutate(dmdeduc = ifelse(dmdeduc > 3, NA, dmdeduc),
+         indfminc = ifelse(indfminc > 13, NA, indfminc)) %>%
+  mutate(ridreth2 = as.factor(ridreth2),
+         dmdeduc = as.factor(dmdeduc),
+         indfminc = as.factor(indfminc),
+         riagendr = as.factor(riagendr)) %>%
+  mutate(indfminc.2 = factor(indfminc, 
+                             levels = c('6', '1', '2', '3', '4', '5', '7', '8', 
+                                        '9', '10', '11', '12', '13')),
+         age.c = ridageyr - mean(ridageyr),
+         age.c2 = age.c**2)
+```
+
+It seems that the complete variables are ridageyr, riagendr, and ridreth2. The multiple imputation technique will take this variables to predict the ones with missing values. Let's create an m=10 imputed datasets using mice command.
+
+a) Let's fill missing values using a multiple imputation approach with m=10
+
+```{r, results = 'hide'}
+nhanes_MI = mice(nhanes, m=10)
+```
+
+
+To check the quality of the imputations, let's see some diagnostics of the completed datasets. Specially, let's see BMI by age and gender
+
+```{r, fig.width=7, fig.height=4}
+par(mfrow=c(1,2))
+stripplot(nhanes_MI, bmxbmi~.imp, col=c("grey",mdc(2),pch=c(1,20)))
+stripplot(nhanes_MI, bmxbmi~ridageyr|riagendr, col=c("grey",mdc(2),pch=c(1,20)))
+
+```
+
+Both plots suggest that the imputation approach is creating values that looks pretty similar than the observed values. Now, let's look at some posterior predictive checks.
+
+
+```{r, results = 'hide'}
+nhanes_pp = rbind(nhanes, nhanes)
+nhanes_pp[10123:20244, 4:12] = NA
+nhanes_ppMI = mice(nhanes_pp, m=10)
+```
+
+Once we have the model, let's check the diagnostics for 2 completed datasets. First, we will analyze at the marginal distributions of the most important variable: BMI.
+
+```{r}
+d1pp = complete(nhanes_ppMI, 1)
+d2pp = complete(nhanes_ppMI, 2)
+```
+
+```{r, fig.width=7, fig.height=6}
+par(mfcol=c(2,2))
+hist(d1pp$bmxbmi[1:10122], xlab = "BMI", main = "1. BMI completed data")
+hist(d1pp$bmxbmi[10123:20244],  xlab = "BMI", main = "1. BMI replicated data")
+
+hist(d2pp$bmxbmi[1:10122], xlab = "BMI", main = "2. BMI completed data")
+hist(d2pp$bmxbmi[10123:20244], xlab = "BMI", main = "2. BMI replicated data")
+```
+
+It seems that the distribution of the imputed values and the observed values are pretty similar. I feel comfortable with the performance of the imputation approach.
+
+Second, let's analyze the relationship between BMI by age at screening (ridageyr) and BMI by gender (riagendr).
+
+```{r, fig.width=7, fig.height=6}
+par(mfcol=c(2,2))
+plot(d1pp$bmxbmi[1:10122]~d1pp$ridageyr[1:10122], ylab = "BMI", xlab = "Age at screening", main = "1. BMI vs age complete")
+plot(d1pp$bmxbmi[10123:20244]~d1pp$ridageyr[10123:20244], ylab = "BMI", xlab = "Age at screening", main = "1. BMI vs age replicated")
+
+plot(d2pp$bmxbmi[1:10122]~d2pp$ridageyr[1:10122], ylab = "BMI", xlab = "Age at screening", main = "2. BMI vs age complete")
+plot(d2pp$bmxbmi[10123:20244]~d2pp$ridageyr[10123:20244], ylab = "BMI", xlab = "Age at screening", main = "2. BMI vs age replicated")
+```
+
+The trend seems to be pretty similar. The complete data seems to have a cuadratic form and the imputed data does not follow that relationship as much as I would like. However I believe that the imputation is good enough.
+
+```{r, fig.width=7, fig.height=6}
+par(mfcol=c(2,2))
+plot(d1pp$bmxbmi[1:10122]~d1pp$riagendr[1:10122], ylab = "BMI", xlab = "Gender", main = "1. BMI vs gender complete")
+plot(d1pp$bmxbmi[10123:20244]~d1pp$riagendr[10123:20244], ylab = "BMI", xlab = "Gender", main = "1. BMI vs gender replicated")
+
+plot(d2pp$bmxbmi[1:10122]~d2pp$riagendr[1:10122], ylab = "BMI", xlab = "Gender", main = "2. BMI vs gender complete")
+plot(d2pp$bmxbmi[10123:20244]~d2pp$riagendr[10123:20244], ylab = "BMI", xlab = "Gender", main = "2. BMI vs gender replicated")
+```
+
+From this plots I would say that the imputation models is well specified.
+
+
+b) Let's run a model that predicts BMI from a subset of age, gender, race, education, and income using the multiple imputation combining rules.
+
+First, let's do some EDA with one of the imputed datasets.
+
+```{r, results="hide"}
+ex1 <- complete(nhanes_MI,1)
+ex1
+```
+
+Let's see the individual relation between BMI and the covariates of interest
+
+```{r, fig.width=7, fig.height=6}
+par(mfcol=c(2,3))
+plot(y = ex1$bmxbmi, x = ex1$ridageyr, xlab = "Age on screening", ylab = "BMI")
+boxplot(bmxbmi~dmdeduc, data = ex1, ylab = "BMI", xlab = "Education")
+boxplot(bmxbmi~indfminc, data = ex1, ylab = "BMI", xlab = "Annual family income")
+boxplot(bmxbmi~ridreth2, data = ex1, ylab = "BMI", xlab = "Race")
+boxplot(bmxbmi~riagendr, data = ex1, ylab = "BMI", xlab = "Gender")
+```
+
+There seems to be a cuadratic relationship between BMI and age. I will specify age squared in the model (the variable is created on the beginning of the code to avoid errors). Also, I will use the age mean centered to facilitate interpretation.
+
+Now, let's look for interaction effects between the variables that could have those effects based on intuition.
+
+```{r, fig.width=7, fig.height=4}
+par(mfcol=c(1,2))
+xyplot(bmxbmi~ridageyr |dmdeduc , data = ex1)
+xyplot(bmxbmi~ridageyr |indfminc , data = ex1)
+```
+
+there is no evidence of interaction effects between age and income or age and education level. I will not employ interactions in the model.
+
+Once I have determined the transformations, I will fit the model employing the 10 imputated datasets using  combining rules.
+
+```{r}
+bmireg1 = with(data=nhanes_MI, lm(bmxbmi~age.c + age.c2 + riagendr + ridreth2 + dmdeduc + indfminc ))
+bmireg2 = pool(bmireg1)
+summary(bmireg2, conf.int = T)
+```
+
+Intercept: For a male with average age, less than highschool education, non-hispanic white and an annual familyn income between 0.00 and 4,999.00 USD, the average BMI is 26.8. We are 95% confident that the average BMI for a person with characteristics mentioned above will be between 26.25 - 27.35.
+
+Age: From the age and age squared coefficients, we can interpret that the relationship between age and BMI is positive but has a decreasing slope because the age squared coefficient is negative. This means that the positive effect is higher in the first years and starts becoming flat when the person gets older.
+
+Gender: For a person with average age, less than highschool education, non-hispanic white, and an annual family income between 0.00 and 4,999.00 USD, if the person is a women, the average BMI is 0.7 higher than if it is a male. We are 95% confident that the average BMI will change somewhere between 0.48 - 0.93 if it is a female.
+
+Race: For a male with average age, less than highschool education, and an annual family income between 0.00 and 4,999.00 USD, being non-hispanic black instead of non-hispanic white represents an average increase in BMI of 1.12 (CI: 0.83-1.42); being mexican american instead of non-hispanic white represents an average increase of 0.71 (CI: 0.41-1.01); being other race instead of non-hispanic white represents an average decrease of -1.70 (CI: -2.34 - -1.07); and being other hispanic instead of non-hispanic white represents an averga increase of 0.08 (CI: -0.57 - 0.73).
+
+Education: For a male with average age, non-hispanic white, and an annual family income between 0.00 and 4,999.00 USD, high school diploma instead of less than high school education, represents an average increase in BMI of 0.62 (CI: 0.24-1.00); having more studies than high school represent an average increase in BMI of 0.13 (CI: -0.22 - 0.47).
+
+
+
+
+
+

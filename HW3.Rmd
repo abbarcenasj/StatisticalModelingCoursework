@@ -1,0 +1,267 @@
+---
+title: 'IDS 702 - Homework #3'
+author: "Ana Belen Barcenas J."
+date: "9/24/2018"
+output: pdf_document
+---
+
+# Maternal Smoking and Birth Weights
+
+```{r setup, include=FALSE}
+setwd("~/Documents/MIDS/Modeling and Repr of Data/R Codes and Data/HM3")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, include=FALSE}
+# install.packages("ggplot2")
+# install.packages("gridExtra")
+# install.packages("grid")
+# install.packages("tidyverse")
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(dplyr)
+library(lattice)
+```
+
+```{r, include=FALSE}
+smoking_comp <- read.csv("smoking_comp.txt")
+smoking <- read.csv("smoking.txt")
+```
+
+## Summary of the data available 
+
+```{r, include=FALSE}
+summary(smoking_comp)
+```
+
+After looking carefully to each variable and taking into account the intuition of the problem, I believe that the father's height and weight could be strongly related with the baby's weight. Thus, I'll create a data frame including these variables to compare models with father's information and without it. The database with father's data has 508 observations vs. 869 obs. in the database without father's data (dataset cleaned provided by the professor). 
+
+Moreover, I will take the mother's education and income variables as continuos since both of them take values that has a specific order, they're ordinal variables. I will interpret the coefficients accordingly to the values that each predictor takes.
+
+
+## Cleaning data:
+
+1) In both datasets there are not rows with missig values.
+
+2) Mrace is equal to 10 in some cases. Those rows will be deleted since that variable should take values between 0 and 9 and 99 for unknown cases. Unfortunately, we can not talk with the people who collect the data to understand these values.
+
+```{r}
+smoking_dad <- na.omit(smoking_comp[c(-11, -12, -13, -16, -19,-20,-21)])
+smoking_dad2 <- smoking_dad[which(smoking_dad$mrace<=9), ]
+
+summary(smoking_dad2)
+```
+
+3) I will collapse race categories from 0 to 5 in "white" and create dummy vars for each category:
+
+```{r}
+n = nrow(smoking)
+smoking$white = rep(0, n)
+smoking$white[smoking$mrace == "1" | smoking$mrace == "2" | smoking$mrace == "3" | smoking$mrace == "4" | smoking$mrace == "5"] = 1
+smoking$mexican = rep(0, n)
+smoking$mexican[smoking$mrace == "6"] = 1
+smoking$black = rep(0, n)
+smoking$black[smoking$mrace == "7"] = 1
+smoking$asian = rep(0, n)
+smoking$asian[smoking$mrace == "8"] = 1
+smoking$mix = rep(0, n)
+smoking$mix[smoking$mrace == "9"] = 1
+
+n = nrow(smoking_dad2)
+smoking_dad2$white = rep(0, n)
+smoking_dad2$white[smoking_dad2$mrace == "1" | smoking_dad2$mrace == "2" | smoking_dad2$mrace == "3" | smoking_dad2$mrace == "4" | smoking_dad2$mrace == "5"] = 1
+smoking_dad2$mexican = rep(0, n)
+smoking_dad2$mexican[smoking_dad2$mrace == "6"] = 1
+smoking_dad2$black = rep(0, n)
+smoking_dad2$black[smoking_dad2$mrace == "7"] = 1
+smoking_dad2$asian = rep(0, n)
+smoking_dad2$asian[smoking_dad2$mrace == "8"] = 1
+smoking_dad2$mix = rep(0, n)
+smoking_dad2$mix[smoking_dad2$mrace == "9"] = 1
+```
+
+4) To obtain more accurate interpretations, I'll substract the mean of the mother's age, height and weight as well as father's height and weight in the second database:
+
+```{r}
+smoking$mage_cent = smoking$mage - mean(smoking$mage)
+smoking$mht_cent = smoking$mht - mean(smoking$mht)
+smoking$mpregwt_cent = smoking$mpregwt - mean(smoking$mpregwt)
+
+smoking_dad2$mage_cent = smoking_dad2$mage - mean(smoking_dad2$mage)
+smoking_dad2$mht_cent = smoking_dad2$mht - mean(smoking_dad2$mht)
+smoking_dad2$mpregwt_cent = smoking_dad2$mpregwt - mean(smoking_dad2$mpregwt)
+smoking_dad2$dht_cent = smoking_dad2$dht - mean(smoking_dad2$dht)
+smoking_dad2$dwt_cent = smoking_dad2$dwt - mean(smoking_dad2$dwt)
+```
+
+
+## Exploratoy analysis
+
+Let's see the relation of each explanatory variable with birth weight to incorporate transformations if necessary:
+
+```{r, fig.width=7, fig.height=9}
+par(mfrow=c(4,3))
+
+boxplot(bwt.oz~smoke, data = smoking, ylab = "Birth weight (ounces)", xlab = "Smoke")
+boxplot(bwt.oz~parity, data = smoking, ylab = "Birth weight (ounces)", xlab = "Parity (number of previous pregnancies)")
+boxplot(bwt.oz~mrace, data = smoking, ylab = "Birth weight (ounces)", xlab = "Mother's race")
+boxplot(bwt.oz~med, data = smoking, ylab = "Birth weight (ounces)", xlab = "Mother's education")
+boxplot(bwt.oz~inc, data = smoking, ylab = "Birth weight (ounces)", xlab = "Familiy yearly income in 2,500 increments")
+
+plot(y = smoking$bwt.oz, x = smoking$mage, xlab = "Mother's age", ylab = "Birth weight (ounces)")
+plot(y = smoking$bwt.oz, x = smoking$mht, xlab = "Mother's height", ylab = "Birth weight (ounces)")
+plot(y = smoking$bwt.oz, x = smoking$mpregwt, xlab = "Mother's weight", ylab = "Birth weight (ounces)")
+
+plot(y = smoking_dad2$bwt.oz, x = smoking_dad2$dht, xlab = "Father's height", ylab = "Birth weight (ounces)")
+plot(y = smoking_dad2$bwt.oz, x = smoking_dad2$dwt, xlab = "Father's weight", ylab = "Birth weight (ounces)")
+
+par(mfrow=c(1,1))
+```
+
+There is no evidence of any pattern between birth weight and the predictor variables. This suggests that is not necessary to transform neither the birth weight nor the explanatory variables. Also, there is no evidence of important outliers in the predictor variables. A more detailed analysis will be performed later to determine if there are important outliers.
+
+
+I will proceed to analyze if there should be interactions between predictive variables (the plots are not included but they has been analyzed).
+
+```{r, fig.width=4, fig.height=3, fig.align="center"}
+par(mfrow=c(4,2))
+#xyplot(bwt.oz~mage_cent | as.factor(smoke), data = smoking) 
+#xyplot(bwt.oz~mht_cent | as.factor(smoke), data = smoking) 
+xyplot(bwt.oz~mpregwt_cent | as.factor(smoke), data = smoking) 
+#xyplot(bwt.oz~dht_cent | as.factor(smoke), data = smoking_dad2) 
+#xyplot(bwt.oz~dwt_cent | as.factor(smoke), data = smoking_dad2) 
+#bwplot(bwt.oz~as.factor(smoke) | as.factor(mrace), data = smoking)
+#bwplot(bwt.oz~as.factor(smoke) | as.factor(med), data = smoking)
+```
+
+There's no evidence of any pattern between the predictive variables. Except for the case of smoking and mother's weight (shown above). There seems to be different patterns between birth weight and mother's weight depending on whether the mother smokes or not. Thus, I'll create an interaction between smoke and mother's weight to fit a model using that interaction and evaluate if it makes a big change.
+
+```{r}
+smoking$smoke_mwt = smoking$smoke * smoking$mpregwt_cent
+smoking_dad2$smoke_mwt = smoking_dad2$smoke * smoking_dad2$mpregwt_cent
+```
+
+## Fitting regresion models 
+
+Let's define if it is appropiate to include father's data: 
+
+
+* Without father's data
+
+```{r}
+reg_weight = lm(bwt.oz~as.factor(smoke) + smoke_mwt + parity + med + mage_cent + mht_cent + mpregwt_cent + inc + mexican + black + asian + mix , data = smoking)
+summary(reg_weight)
+```
+
+* With father's data
+
+```{r}
+reg_weight_d = lm(bwt.oz~as.factor(smoke) + smoke_mwt + parity + med + mage_cent + mht_cent + mpregwt_cent + dht_cent + dwt_cent + inc + mexican + black + asian + mix , data = smoking_dad2)
+summary(reg_weight_d)
+```
+
+Given the previous results of the regressions with and without father's height and weight, I conclude that including father's information do not worth it. The reasons are the following:
+
+1) First of all, if I include father's data in the analysis, I will lose almost half of the observations of the original data.
+
+2) It could be the case that losing those observations worth it if the model including father's data improve a lot the predictive power of the model. This is not the case since the difference in the R-squared is minimal (15.28% vs. 16.53%).
+
+3) On the other hand, including those variables produces an increase in the standard errors of each coefficient, what suggests that there is a strong correlation between mother's and father's height and weight. After calculating pearson correlation, I can conclude that those variables are in fact strongly correlated. 
+
+On the other hand, after modeling the previous equations with and without the interaction between smoking and mother's weight, I can conclude that the interaction is not adding value to the prediction of birth weight: the R-squared does not change at all and the interaction is not statistically significant. Thus, I will exclude the interaction in the final model to avoid overfitting.
+
+```{r}
+reg_weight_f = lm(bwt.oz~as.factor(smoke) + parity + med + mage_cent + mht_cent +
+                    mpregwt_cent + inc + mexican + black + asian + mix , data = smoking)
+```
+
+## Outliers, leverage, and/or influential points.
+
+Now that I have decided about what predictors, interactions, and transformations I will include in the model, I'll double check if there is any outlier, leverage points, and/or influential points to pay attention in.
+
+```{r, fig.width=4, fig.height=3, fig.align="center"}
+library(MASS)
+leverage = hatvalues(reg_weight_f)
+cooks = cooks.distance(reg_weight_f)
+new_dataset = cbind(smoking, leverage, cooks)
+
+hist(leverage, main = "Leverage values for smoking regression")
+```
+
+It seems that if I set leverage > 0.07 I could find some leverage points. Let's see some examples to determine if there is something weird in the data:
+```{r}
+new_dataset[new_dataset$leverage > .07,]
+```
+
+There is nothing that really stands out in these cases. I'll proceed to check for cooks distance.
+
+```{r, fig.width=4, fig.height=3, fig.align="center"}
+hist(cooks, main = "Cook's distances for smoking regression")
+```
+
+The bar graph above suggests that there is no evidence of outliers in the data. If there would be an outlier or leverage point, the next step will be to fit the model again without that atypical observation to check if something changes dramatically. Since I did not find neither outliers nor leverage points, I will proceed to check the regression assumptions.
+
+## Regression assumptions
+
+```{r}
+par(mfrow=c(2,2))
+plot(reg_weight_f)
+par(mfrow=c(1,1))
+```
+
+These graphs looks pretty well. The linearity, constant variance, and normality assumptions seems to be met. Now, I feel confident about not including transformations and/or interactions in the final model. Besides that the assumptions are met, I do not have to worry about being overfitting the model.
+
+
+## Are smoking and mother's race significant predictors of birth weight?
+
+Let's do a nested-F test to determine if smoking is a useful and significant predictor:
+
+```{r}
+# Model excluding mother's race:
+reg_weight_f2 = lm(bwt.oz~parity + med + mage_cent + mht_cent + mpregwt_cent + inc + mexican + black + asian + mix , data = smoking)
+
+anova(reg_weight_f2, reg_weight_f)
+```
+
+Given the p-value we can reject the null hypotheses: it seems that whether the mother smokes or not is a really significant predictor of birth weight.
+
+
+Let's do a nested-F test to determine if the mother's race a useful and significant predictor:
+
+```{r}
+# Model excluding mother's race:
+reg_weight_f3 = lm(bwt.oz~as.factor(smoke) + parity + med + mage_cent + mht_cent + mpregwt_cent + inc, data = smoking)
+
+anova(reg_weight_f3, reg_weight_f)
+```
+
+The p-value suggests that the mother's race is also a significant predictor of birth weight.
+
+
+## Interpretation of the coefficients and confidence intervals
+
+```{r}
+summary(reg_weight_f)
+confint(reg_weight_f)
+```
+
+-- Intercept: The average birth weight of babies whose mother do not smoke, is white, has average height, weight, and age, zero previous pregnancies, zero years of education and income, is 123.7 ounces. We are 95% confident that the average birth weight when the person has the characteristics mentioned above falls between 119.6 and 127.9.
+
+-- Smoke: The average birth weight of babies with white mothers with average height, weight, and age (and zero in the secondary predictors) is 9.34 ounces less if the mother smoke than if the mother does not smoke. We are 95% confident that the average birth weight when the mother smoke and has the characteristics mentioned above decrease around 11.6 and 7.1 ounces.
+
+-- Mother's race: Assuming a white mother with average height, weight, and age (and zero in the secondary predictors), the average birth weight of her baby will be 3.1 ounces higher if the mother is Mexican instead of white (95% CI: -3.7 - 9.9); 9.2 ounces lower if the mother is black instead of white (95% CI: -12.2 - -6.1); 7.8 ounces lower if the mother is asian instead of white (95% CI: -13.8 - 1.7); and 2.1 lower if the mother's race is a mix instead of white (95% CI: -10.8 - 6.5).
+
+-- Besides smoking and the mother's race, mother's height and weight seems to be strong predictors of birth weight. This could be interpreted as an inheritance from mothers to babies and/or as the health status of the mother that is shaping the birth weight of the baby. For each additional inch in the mother's height, the average birth weight increase 0.94 ounces (95% CI: 0.42 - 1.46). For each additional pound in the mother's weight, the average birth weight increase by 0.11 ounces (95% CI: 0.05 - 0.17).
+
+
+# Conclusion and limitations of the model 
+
+According with the findings previously shown, mothers who smoke tend to have babies whose birth weight is lower compared with mothers that do not smoke. The CI of the effect of smoking on birth weight is narrow, what provides conclusive evidence of the negative relation between smoking and birth weight. Moreover, the mother's race seems to be a strong predictor of babies birth weight. Finally, there are another interesting associations between birth weight and mother's height and weight. This could be associated with inheritance and/or mother's health condition.
+
+The model explains 15% of the variance, which is not that bad for human related analysis. Nevertheless, it could be useful to collect more observations to obtain more accurate predictions. Also, including predictors releated with parent's general health condition could be useful to build a better model.
+
+
+
+
+
